@@ -1,0 +1,16 @@
+{
+  "name": "iceberg-orders-sink",
+  "config": {
+    "connector.class": "io.tabular.iceberg.connect.IcebergSinkConnector",
+    "tasks.max": "1",
+
+    "topics": "cdc.orders",
+
+    "iceberg.catalog.type": "rest",
+    "iceberg.tables": "cdc.orders",
+
+    "iceberg.tables.auto-create-enabled": "true",
+
+    "flush.size": "10"
+  }
+}
