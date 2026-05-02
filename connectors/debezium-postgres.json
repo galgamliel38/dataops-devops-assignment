@@ -4,7 +4,7 @@
     "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
     "tasks.max": "1",
 
-    "database.hostname": "REPLACE_DB_PRIVATE_IP",
+    "database.hostname": "REPLACE_WITH_DB_PRIVATE_IP",
     "database.port": "5432",
     "database.user": "debezium",
     "database.password": "debezium_password",
@@ -14,13 +14,19 @@
     "table.include.list": "public.orders",
 
     "plugin.name": "pgoutput",
-
     "slot.name": "orders_slot",
     "publication.autocreate.mode": "filtered",
 
     "key.converter": "org.apache.kafka.connect.json.JsonConverter",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
-    "key.converter.schemas.enable": "false",
-    "value.converter.schemas.enable": "false"
+    "key.converter.schemas.enable": "true",
+    "value.converter.schemas.enable": "true",
+
+    "transforms": "unwrap",
+    "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
+    "transforms.unwrap.add.fields": "op,source.ts_ms",
+    "transforms.unwrap.add.fields.prefix": "__",
+    "transforms.unwrap.delete.handling.mode": "rewrite",
+    "transforms.unwrap.drop.tombstones": "false"
   }
 }

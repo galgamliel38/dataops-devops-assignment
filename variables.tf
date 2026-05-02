@@ -5,40 +5,35 @@ variable "aws_region" {
 }
 
 variable "project_name" {
-  description = "Project name used for naming AWS resources"
+  description = "Project name prefix applied to all resource names"
   type        = string
   default     = "dataops-devops"
 }
 
 variable "environment" {
-  description = "Environment name"
+  description = "Environment label (e.g. home-assignment, staging, prod)"
   type        = string
   default     = "home-assignment"
 }
 
 variable "my_ip_cidr" {
-  description = "Your public IP address in CIDR format, used to restrict SSH and UI access"
-  type        = string
-}
-
-variable "ubuntu_ami_id" {
-  description = "Ubuntu AMI ID used for EC2 instances"
+  description = "Your public IP in CIDR format (e.g. 1.2.3.4/32) – restricts SSH and UI access"
   type        = string
 }
 
 variable "ec2_key_name" {
-  description = "Existing EC2 key pair name for SSH access"
+  description = "Name of an existing EC2 key pair for SSH access"
   type        = string
 }
 
 variable "database_instance_type" {
-  description = "EC2 instance type for PostgreSQL"
+  description = "EC2 instance type for the PostgreSQL instance"
   type        = string
   default     = "t3.micro"
 }
 
 variable "kafka_instance_type" {
-  description = "EC2 instance type for Kafka and Confluent Platform"
+  description = "EC2 instance type for Confluent Platform (t3.xlarge recommended – Control Center is memory-heavy)"
   type        = string
-  default     = "t3.medium"
+  default     = "t3.xlarge"
 }

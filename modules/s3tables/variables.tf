@@ -1,10 +1,10 @@
 variable "name_prefix" {
-  description = "Prefix for naming S3 Tables resources"
+  description = "Prefix for all resource names"
   type        = string
 }
 
 variable "namespace_name" {
-  description = "S3 Tables namespace name"
+  description = "Namespace name inside the S3 Table Bucket"
   type        = string
   default     = "cdc"
 }

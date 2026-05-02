@@ -1,3 +1,8 @@
+# ============================================================
+# Networking Module
+# Creates: VPC, public subnet, IGW, route table, security groups
+# ============================================================
+
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
@@ -46,45 +51,62 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
+# ----------------------------------------------------------
+# Security Group: Confluent / Kafka EC2
+# ----------------------------------------------------------
 resource "aws_security_group" "kafka" {
   name        = "${var.name_prefix}-kafka-sg"
   description = "Security group for Confluent Kafka EC2 instance"
   vpc_id      = aws_vpc.main.id
 
+  # SSH – admin access only from operator IP
   ingress {
-    description = "SSH from my IP"
+    description = "SSH from operator IP"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
     cidr_blocks = [var.my_ip_cidr]
   }
 
+  # Confluent Control Center UI
   ingress {
-    description = "Confluent Control Center from my IP"
+    description = "Confluent Control Center UI from operator IP"
     from_port   = 9021
     to_port     = 9021
     protocol    = "tcp"
     cidr_blocks = [var.my_ip_cidr]
   }
 
+  # Kafka Connect REST API
   ingress {
-    description = "Kafka Connect REST API from my IP"
+    description = "Kafka Connect REST API from operator IP"
     from_port   = 8083
     to_port     = 8083
     protocol    = "tcp"
     cidr_blocks = [var.my_ip_cidr]
   }
 
+  # Kafka broker – allow DB instance (same VPC) to reach broker
   ingress {
-    description = "PostgreSQL CDC access from Kafka SG"
-    from_port   = 5432
-    to_port     = 5432
+    description = "Kafka broker from VPC (Debezium to Kafka)"
+    from_port   = 9092
+    to_port     = 9092
     protocol    = "tcp"
-    self        = true
+    cidr_blocks = [var.vpc_cidr]
   }
 
+  # Schema Registry (used internally by Connect)
+  ingress {
+    description = "Schema Registry from VPC"
+    from_port   = 8081
+    to_port     = 8081
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
+  # All outbound (needed for apt, Confluent repos, AWS APIs, S3 Tables)
   egress {
-    description = "Allow outbound internet access"
+    description = "Allow all outbound traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -96,29 +118,35 @@ resource "aws_security_group" "kafka" {
   }
 }
 
+# ----------------------------------------------------------
+# Security Group: PostgreSQL EC2
+# ----------------------------------------------------------
 resource "aws_security_group" "database" {
   name        = "${var.name_prefix}-database-sg"
   description = "Security group for PostgreSQL EC2 instance"
   vpc_id      = aws_vpc.main.id
 
+  # SSH – admin access only from operator IP
   ingress {
-    description = "SSH from my IP"
+    description = "SSH from operator IP"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
     cidr_blocks = [var.my_ip_cidr]
   }
 
+  # PostgreSQL – only reachable from the Kafka security group (Debezium)
   ingress {
-    description     = "PostgreSQL from Kafka instance"
+    description     = "PostgreSQL from Kafka instance (Debezium CDC)"
     from_port       = 5432
     to_port         = 5432
     protocol        = "tcp"
     security_groups = [aws_security_group.kafka.id]
   }
 
+  # All outbound (apt, OS updates)
   egress {
-    description = "Allow outbound internet access"
+    description = "Allow all outbound traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"

@@ -8,14 +8,16 @@ terraform {
     }
   }
 
-  # Remote backend will be enabled after AWS account activation.
-  # backend "s3" {
-  #   bucket       = "CHANGE_ME_TERRAFORM_STATE_BUCKET"
-  #   key          = "dataops-devops-assignment/terraform.tfstate"
-  #   region       = "eu-west-1"
-  #   encrypt      = true
-  #   use_lockfile = true
-  # }
+  # Remote state in S3 with native locking (no DynamoDB needed – use_lockfile=true)
+  # Uncomment after creating the state bucket:
+  #   aws s3 mb s3://dataops-devops-tfstate-933832340588 --region eu-west-1
+  backend "s3" {
+    bucket       = "dataops-devops-tfstate-933832340588"
+    key          = "dataops-devops-assignment/terraform.tfstate"
+    region       = "eu-west-1"
+    encrypt      = true
+    use_lockfile = true   # Native S3 locking – no DynamoDB needed
+  }
 }
 
 provider "aws" {

@@ -2,159 +2,219 @@
 
 ## Overview
 
-This project provisions a DataOps infrastructure on AWS using Terraform.
+End-to-end data pipeline infrastructure on AWS, fully provisioned via Terraform:
 
-The goal is to demonstrate an end-to-end data pipeline:
+```
+PostgreSQL (CDC) → Confluent Platform (Kafka) → AWS S3 Tables (Iceberg)
+```
 
-```text
-PostgreSQL (CDC Source) → Kafka / Confluent → AWS S3 Tables (Iceberg)
+Changes in the `orders` table are captured by **Debezium**, streamed through **Kafka**, and written to an **Iceberg** table in **AWS S3 Tables** via the Iceberg Kafka Connect Sink connector.
 
-The infrastructure is fully defined as code and organized into Terraform modules.
+---
 
-Architecture
+## Architecture
 
-The project includes:
+```
+┌─────────────────────────┐        ┌──────────────────────────────────────────┐
+│  EC2: PostgreSQL (CDC)  │        │  EC2: Confluent Platform                 │
+│                         │  CDC   │                                          │
+│  - ordersdb             │──────▶ │  - Kafka Broker (KRaft)                  │
+│  - wal_level=logical    │        │  - Schema Registry                       │
+│  - Debezium user        │        │  - Kafka Connect                         │
+│  - orders table         │        │    ├── Debezium PostgreSQL Source         │
+│                         │        │    └── Iceberg Sink (tabular-io)         │
+│  t3.micro               │        │  - Control Center (UI: port 9021)        │
+└─────────────────────────┘        │                                          │
+                                   │  t3.xlarge                               │
+                                   └──────────────┬───────────────────────────┘
+                                                  │ writes
+                                                  ▼
+                                   ┌──────────────────────────────┐
+                                   │  AWS S3 Tables (Iceberg)     │
+                                   │  namespace: cdc              │
+                                   │  table:     orders           │
+                                   │  schema: id, customer_name,  │
+                                   │    amount, status,           │
+                                   │    created_at, __op,         │
+                                   │    __source_ts_ms            │
+                                   └──────────────────────────────┘
+```
 
-AWS VPC and networking
-EC2 instance for PostgreSQL
-EC2 instance for Kafka / Confluent
-Security Groups with restricted access
-S3 Tables bucket and Iceberg table
-Connector configuration files
-Test scripts
-Screenshots of the deployed infrastructure
+### Terraform Module Structure
 
-Project Structure.
-├── connectors
-├── modules
-│   ├── networking
-│   ├── database
-│   ├── kafka
-│   └── s3tables
-├── scripts
-├── screenshots
-├── main.tf
-├── providers.tf
+```
+├── bootstrap/                      # Run ONCE to create the S3 state bucket
+│   └── main.tf
+├── main.tf                         # Root — wires all modules
+├── providers.tf                    # AWS provider + S3 backend
 ├── variables.tf
 ├── outputs.tf
-└── README.md
+├── modules/
+│   ├── networking/                 # VPC, subnet, IGW, security groups
+│   ├── database/                   # PostgreSQL EC2 (CDC source)
+│   ├── kafka/                      # Confluent EC2 + IAM role
+│   └── s3tables/                   # S3 Table Bucket + Iceberg table (with schema)
+├── connectors/
+│   ├── debezium-postgres.json      # Debezium CDC source config
+│   └── iceberg-sink.json           # Iceberg Sink connector config
+└── scripts/
+    ├── register-debezium.sh
+    ├── register-iceberg.sh
+    └── test-cdc.sql
+```
 
-Terraform Modules
-networking
+---
 
-Creates:
+## Deploy from Scratch
 
-VPC
-Public subnet
-Internet Gateway
-Route Table
-Security Groups
-database
+### Step 1 — Create the Terraform state bucket (bootstrap)
 
-Creates a PostgreSQL EC2 instance and configures it as a CDC source.
+This runs once and creates the S3 bucket used for remote state.
 
-Includes:
+```bash
+cd bootstrap/
+terraform init
+terraform apply
+# Output: state_bucket_name = "dataops-devops-tfstate-123456789012"
+```
 
-PostgreSQL installation
-ordersdb database
-orders table
-Debezium user
-Logical replication settings
-kafka
+Copy the output bucket name into `providers.tf`:
 
-Creates a Kafka / Confluent EC2 instance.
+```hcl
+backend "s3" {
+  bucket = "dataops-devops-tfstate-123456789012"   # ← paste here
+  ...
+}
+```
 
-Includes:
+### Step 2 — Create `terraform.tfvars`
 
-Kafka Broker
-Schema Registry
-Kafka Connect
-Control Center
-Kafka topic: cdc.orders
-s3tables
+```hcl
+aws_region             = "eu-west-1"
+my_ip_cidr             = "YOUR_PUBLIC_IP/32"
+ec2_key_name           = "YOUR_KEY_PAIR_NAME"
+database_instance_type = "t3.micro"
+kafka_instance_type    = "t3.xlarge"
+```
 
-Creates the S3 Tables target layer.
+### Step 3 — Deploy
 
-Includes:
-
-S3 Tables bucket
-Namespace: cdc
-Iceberg table: orders
-
-Security
-
-Security Groups are configured with limited inbound access.
-
-Administrative access and UI access are restricted to a specific public IP using /32.
-
-No AWS credentials are stored in the repository.
-
-The following files are intentionally excluded from Git:
-terraform.tfvars
-terraform.tfstate
-terraform.tfstate.backup
-*.pem
-.terraform/
-
-How to Deploy
-Prerequisites
-Terraform installed
-AWS CLI configured
-AWS credentials available locally
-Existing EC2 Key Pair
-Valid public IP configured in terraform.tfvars
-Commands
+```bash
 terraform init
 terraform validate
 terraform plan
 terraform apply
+```
 
-To destroy the infrastructure:
+**Expected outputs after apply:**
+
+```
+database_private_ip        = "10.0.1.x"
+database_public_ip         = "x.x.x.x"
+kafka_public_ip            = "x.x.x.x"
+control_center_url         = "http://x.x.x.x:9021"
+kafka_connect_url          = "http://x.x.x.x:8083"
+s3tables_table_bucket_name = "dataops-devops-home-assignment-table-bucket"
+orders_iceberg_table_arn   = "arn:aws:s3tables:..."
+```
+
+---
+
+## Testing the CDC Flow End-to-End
+
+### Step 1 — Wait for Confluent to finish starting (~8 min)
+
+```bash
+ssh -i YOUR_KEY.pem ubuntu@<kafka_public_ip>
+sudo tail -f /var/log/user-data.log
+# Wait for: ✅ Confluent Platform setup complete!
+```
+
+### Step 2 — Register Debezium connector
+
+```bash
+./scripts/register-debezium.sh <kafka_public_ip> <db_private_ip>
+
+# Verify RUNNING:
+curl http://<kafka_public_ip>:8083/connectors/postgres-orders-cdc/status | jq .
+```
+
+### Step 3 — Register Iceberg Sink connector
+
+```bash
+./scripts/register-iceberg.sh <kafka_public_ip> eu-west-1
+
+# Verify RUNNING:
+curl http://<kafka_public_ip>:8083/connectors/iceberg-orders-sink/status | jq .
+```
+
+### Step 4 — Trigger CDC events
+
+```bash
+psql -h <db_public_ip> -U debezium -d ordersdb -f scripts/test-cdc.sql
+```
+
+This produces INSERT (op=c), UPDATE (op=u), and DELETE (op=d) events on `cdc.orders`.
+
+### Step 5 — Verify in Confluent Control Center
+
+Open `http://<kafka_public_ip>:9021` → Topics → cdc.orders → Messages.
+**Take a screenshot** — required deliverable.
+
+### Step 6 — Verify data in S3 Tables via Athena
+
+```sql
+SELECT id, customer_name, amount, status, __op, __source_ts_ms
+FROM "cdc"."orders"
+ORDER BY __source_ts_ms DESC
+LIMIT 20;
+```
+
+**Take a screenshot of results** — required deliverable.
+
+---
+
+## Security Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| IAM Role on Kafka EC2 | No hardcoded AWS credentials; Iceberg connector uses instance profile to call S3 Tables APIs |
+| Security groups with `/32` CIDR | SSH and UI restricted to operator IP only |
+| PostgreSQL port 5432 only from Kafka SG | Database not reachable from internet |
+| Kafka broker port 9092 open within VPC CIDR | Allows Debezium (on DB EC2) to reach Kafka across internal network |
+| S3 state bucket versioning + encryption | State file protected and recoverable |
+| `use_lockfile = true` in backend | Native S3 locking, no DynamoDB needed |
+| No NAT Gateway | Cost reduction; both instances have public IPs (acceptable for assignment scope) |
+
+---
+
+## Bonus: Schema Evolution
+
+With `iceberg.tables.evolve-schema-enabled: true` in the Iceberg Sink, the table automatically evolves when you add columns:
+
+```sql
+ALTER TABLE orders ADD COLUMN discount NUMERIC(5,2) DEFAULT 0.00;
+
+INSERT INTO orders (customer_name, amount, status, discount)
+VALUES ('Schema Test', 299.00, 'created', 15.00);
+```
+
+Query in Athena — the `discount` column appears automatically in the Iceberg table.
+
+---
+
+## Tear Down
+
+```bash
 terraform destroy
+cd bootstrap/ && terraform destroy   # only if you also want to remove the state bucket
+```
 
-CDC Flow
+---
 
-Expected flow:
-PostgreSQL orders table
-        ↓
-Debezium PostgreSQL Connector
-        ↓
-Kafka topic: cdc.orders
-        ↓
-Iceberg Sink Connector
-        ↓
-AWS S3 Tables / Iceberg orders table
+## Screenshots
 
-Connector configuration files are located under:
-connectors/
-
-Test SQL script is located under:
-scripts/test-cdc.sql
-
-Screenshots
-Terraform Apply Outputs
-EC2 Instances
-Security Group Rules
-
-Cost Considerations
-
-To reduce costs:
-
-Used small EC2 instance types
-Used a single AWS region
-Avoided NAT Gateway
-Destroyed infrastructure after testing
-
-Notes
-
-Confluent Control Center may take additional time to become available on small EC2 instances such as t3.micro.
-
-For a production-grade setup, I would improve the architecture by adding:
-
-Private subnets
-IAM roles for EC2
-Remote Terraform state in S3 with locking
-CloudWatch alarms
-Larger Kafka instance type
-More complete connector validation
-Dedicated IAM user/role instead of root credentials
+See `screenshots/` directory:
+- `01-terraform-apply-outputs.png`
+- `02-ec2-instances.png`
+- `03-security-group.png`
