@@ -249,11 +249,14 @@ LIMIT 10;
 ## Screenshots
 
 See `screenshots/` directory:
-- `01-terraform-apply-outputs.png` — Terraform outputs after apply
-- `02-ec2-instances.png` — EC2 instances running in AWS Console
-- `03-kafka-cdc-messages-topic.png` — CDC messages flowing in Kafka topic
-- `04-connectors-running.png` — Both connectors in RUNNING state
-
+- `01-terraform-apply-outputs.png`
+- `02-ec2-instances.png`
+- `03-security-group.png`
+- `04-connectors-running.png`
+- `05-kafka-cdc-messages-topic.png`
+- `06-postgres-insert-and-select.png`
+- `07-connectors-running.png`
+- `08-kafka-cdc-messages-final.png`
 ---
 
 ## Tear Down
