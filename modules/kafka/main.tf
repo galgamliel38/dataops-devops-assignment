@@ -86,7 +86,7 @@ resource "aws_instance" "kafka" {
 
   # user_data runs on first boot; sets up the entire Confluent stack
   user_data = <<-EOF
-    #!/bin/bash
+  #!/bin/bash
     set -euxo pipefail
     exec > /var/log/user-data.log 2>&1
 
@@ -102,11 +102,10 @@ resource "aws_instance" "kafka" {
 https://packages.confluent.io/deb/8.0 stable main" \
       > /etc/apt/sources.list.d/confluent.list
 
-    apt-get update -y
-    apt-get install -y \
-      confluent-platform \
-      confluent-control-center \
-      confluent-hub-client
+   apt-get install -y \
+    confluent-platform \
+    confluent-hub-client
+    # confluent-control-center intentionally excluded — too memory-heavy for Free Tier
 
     # ── Connectors ───────────────────────────────────────────
     # Debezium PostgreSQL CDC source
