@@ -1,267 +1,264 @@
-# DataOps DevOps Assignment
+# DataOps DevOps Assignment – End-to-End CDC Pipeline
 
 ## Overview
 
-End-to-end CDC data pipeline infrastructure:
+This project implements an end-to-end CDC (Change Data Capture) pipeline:
 
-```
-PostgreSQL (CDC) → Kafka Connect → AWS S3 Tables (Iceberg)
-```
+PostgreSQL → Debezium → Kafka → Iceberg Sink Connector → AWS S3 Tables
 
-Changes in the `orders` table are captured by **Debezium**, streamed through **Kafka**, and written to an **Iceberg** table in **AWS S3 Tables**.
+The platform is executed locally using WSL and Docker, while PostgreSQL and S3 Tables are hosted on AWS.
 
 ---
 
 ## Architecture
 
-```
-┌─────────────────────────┐        ┌──────────────────────────────────────┐
-│  EC2: PostgreSQL        │        │  Local Docker (WSL2)                 │
-│  AWS eu-west-1          │  CDC   │                                      │
-│  - ordersdb             │──────▶ │  - Kafka Broker (KRaft)              │
-│  - wal_level=logical    │        │  - Schema Registry                   │
-│  - orders table         │        │  - Kafka Connect                     │
-│  - pgoutput plugin      │        │    ├── Debezium PostgreSQL Source    │
-│  - publication: dbz_pub │        │    └── Iceberg Sink (tabular-io)    │
-│                         │        │                                      │
-│  t3.micro               │        │  REST API: localhost:8083            │
-└─────────────────────────┘        └──────────────┬───────────────────────┘
-                                                  │ writes
-                                                  ▼
-                                   ┌──────────────────────────────┐
-                                   │  AWS S3 Tables (Iceberg)     │
-                                   │  namespace: cdc              │
-                                   │  table:     orders           │
-                                   │  cols: id, customer_name,    │
-                                   │    amount, status,           │
-                                   │    created_at, __op,         │
-                                   │    __source_ts_ms            │
-                                   └──────────────────────────────┘
-```
+PostgreSQL on AWS EC2  
+↓  
+Debezium PostgreSQL Connector  
+↓  
+Kafka Topic: `cdc.public.orders`  
+↓  
+Iceberg Sink Connector  
+↓  
+AWS S3 Tables
 
-### Design Decision — Local Kafka
+---
 
-Confluent Platform requires ~4GB RAM. AWS Free Tier instances (t3.micro/t3.small) do not provide enough memory to run Broker + Schema Registry + Connect + Control Center simultaneously.
+## Technologies Used
 
-Following the interviewer's suggestion, Kafka and Kafka Connect run locally via Docker (WSL2) while PostgreSQL and S3 Tables remain on AWS. This matches option 2 from the interviewer: *"run locally with connectivity to SQL and S3 Tables on AWS"*.
+- Terraform
+- AWS EC2
+- AWS S3 Tables
+- PostgreSQL
+- Docker / Docker Compose
+- Apache Kafka
+- Kafka Connect
+- Debezium
+- Iceberg Sink Connector
+- WSL2
 
-### Terraform Module Structure
+---
 
-```
-├── bootstrap/                   # Run ONCE — creates S3 state bucket
-├── main.tf                      # Root — wires all modules
-├── providers.tf                 # AWS provider + S3 backend
-├── variables.tf
-├── outputs.tf
-├── modules/
-│   ├── networking/              # VPC, subnet, IGW, security groups
-│   ├── database/                # PostgreSQL EC2 (CDC source)
-│   ├── kafka/                   # EC2 + IAM role (Confluent commented out)
-│   └── s3tables/                # S3 Table Bucket + Iceberg table
+## Project Structure
+
+```text
+.
+├── docker-compose.yml
+├── debezium.json
 ├── connectors/
-│   ├── debezium-postgres.json
 │   └── iceberg-sink.json
-├── local-setup/
-│   └── docker-compose.yml       # Local Kafka stack
-└── scripts/
-    ├── register-debezium.sh
-    ├── register-iceberg.sh
-    └── test-cdc.sql
-```
+├── scripts/
+├── modules/
+│   ├── database/
+│   ├── kafka/
+│   ├── networking/
+│   └── s3tables/
+├── screenshots/
+└── README.md
 
----
 
-## Deploy from Scratch
+Prerequisites
 
-### Prerequisites
+Before running the project, make sure you have:
 
-- Terraform >= 1.10.0
-- AWS CLI configured (`aws configure`)
-- Docker + WSL2 (Windows) or Docker Desktop (Mac/Linux)
-- An existing EC2 Key Pair in the target region
+WSL2
+Docker
+Docker Compose
+PostgreSQL client (psql)
+AWS infrastructure created with Terraform
+AWS credentials available locally for the Iceberg connector
 
-### Step 1 — Create Terraform state bucket (bootstrap)
+Do not commit real AWS credentials to Git.
 
-```bash
-cd bootstrap/
+AWS Infrastructure
+
+Terraform provisions:
+
+PostgreSQL EC2 instance
+Networking and security groups
+S3 Tables bucket
+Iceberg table
+IAM role configuration
+
+Run from the project root:
+
 terraform init
 terraform apply
-# Output: state_bucket_name = "dataops-devops-tfstate-ACCOUNTID"
-```
 
-Copy the bucket name into `providers.tf` → `backend "s3" { bucket = "..." }`.
+After apply, note the PostgreSQL public IP and update it inside:
 
-### Step 2 — Create `terraform.tfvars`
+debezium.json
 
-```hcl
-aws_region             = "eu-west-1"
-my_ip_cidr             = "YOUR_PUBLIC_IP/32"
-ec2_key_name           = "YOUR_KEY_PAIR_NAME"
-database_instance_type = "t3.micro"
-kafka_instance_type    = "t3.small"
-```
+Example:
 
-### Step 3 — Deploy AWS infrastructure
+"database.hostname": "POSTGRES_PUBLIC_IP"
+PostgreSQL Configuration
 
-```bash
-terraform init
-terraform validate
-terraform plan
-terraform apply
-```
+PostgreSQL must be configured for logical replication.
 
-**Expected outputs:**
-```
-database_public_ip         = "x.x.x.x"
-database_private_ip        = "10.0.1.x"
-kafka_public_ip            = "x.x.x.x"
-s3tables_table_bucket_name = "dataops-devops-home-assignment-table-bucket"
-orders_iceberg_table_arn   = "arn:aws:s3tables:..."
-```
+On the PostgreSQL EC2 instance, edit:
 
-### Step 4 — Set up PostgreSQL (CDC source)
+sudo nano /etc/postgresql/14/main/postgresql.conf
 
-SSH into the database instance and run:
+Set:
 
-```bash
-sudo apt-get install -y postgresql
-sudo -u postgres psql -c "ALTER SYSTEM SET wal_level = logical;"
+listen_addresses = '*'
+wal_level = logical
+max_replication_slots = 10
+max_wal_senders = 10
+
+Then edit:
+
+sudo nano /etc/postgresql/14/main/pg_hba.conf
+
+Add:
+
+host    all             all             0.0.0.0/0               md5
+
+Restart PostgreSQL:
+
 sudo systemctl restart postgresql
-sudo -u postgres psql -c "CREATE USER debezium WITH PASSWORD 'debezium_password' REPLICATION LOGIN SUPERUSER;"
-sudo -u postgres psql -c "CREATE DATABASE ordersdb;"
-sudo -u postgres psql -d ordersdb -c "
-  CREATE TABLE orders (
-    id            SERIAL PRIMARY KEY,
-    customer_name TEXT NOT NULL,
-    amount        NUMERIC(10,2) NOT NULL,
-    status        TEXT NOT NULL,
-    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  );
-  ALTER TABLE orders REPLICA IDENTITY FULL;
-  CREATE PUBLICATION dbz_publication FOR TABLE orders;
-  INSERT INTO orders (customer_name, amount, status) VALUES
-    ('Gal Gamliel', 199.90, 'created'),
-    ('Test Customer', 349.50, 'created'),
-    ('Alice Cohen', 750.00, 'pending');
-"
-```
 
-Also open PostgreSQL to external connections:
+Create the orders table:
 
-```bash
-PG_CONF=$(find /etc/postgresql -name "postgresql.conf")
-echo "listen_addresses = '*'" | sudo tee -a $PG_CONF
-echo "host all all 0.0.0.0/0 md5" | sudo tee -a /etc/postgresql/*/main/pg_hba.conf
-sudo systemctl restart postgresql
-```
+sudo -u postgres psql
+CREATE TABLE public.orders (
+    id SERIAL PRIMARY KEY,
+    customer_name TEXT,
+    amount NUMERIC,
+    status TEXT,
+    created_at TIMESTAMP
+);
+Local Runtime Setup
 
-### Step 5 — Start local Kafka stack (Docker)
+The Kafka platform runs locally in WSL.
 
-```bash
-cd local-setup/
-docker-compose up -d
+Start the stack:
 
-# Install connectors inside the container
-docker exec kafka-connect confluent-hub install --no-prompt debezium/debezium-connector-postgresql:2.5.4
+sudo docker-compose up -d
 
-# Install Iceberg connector
-docker exec kafka-connect bash -c "
-  curl -sL 'https://github.com/databricks/iceberg-kafka-connect/releases/download/v0.6.19/iceberg-kafka-connect-runtime-0.6.19.zip' -o /tmp/iceberg.zip
-  mkdir -p /usr/share/confluent-hub-components/iceberg-kafka-connect
-  cd /usr/share/confluent-hub-components/iceberg-kafka-connect
-  jar xf /tmp/iceberg.zip
-  echo 'plugin.path=/usr/share/java,/usr/share/confluent-hub-components,/usr/share/confluent-hub-components/iceberg-kafka-connect/iceberg-kafka-connect-runtime-0.6.19' >> /etc/kafka/connect-distributed.properties
-"
-docker restart kafka-connect
-sleep 30
-```
+Verify containers:
 
----
+sudo docker ps
 
-## Testing the CDC Flow End-to-End
+Expected containers:
 
-### Step 1 — Register Debezium connector
+galga_zookeeper_1
+galga_kafka_1
+galga_connect_1
+Verify Kafka Connect
+curl localhost:8083/connectors
 
-Replace `DB_PUBLIC_IP` with the database EC2 public IP:
+At first, the result can be empty:
 
-```bash
+[]
+Register Debezium Connector
 curl -X POST http://localhost:8083/connectors \
-  -H "Content-Type: application/json" \
-  -d @connectors/debezium-postgres.json
+-H "Content-Type: application/json" \
+--data @debezium.json
 
-# Verify RUNNING:
-curl http://localhost:8083/connectors/postgres-orders-cdc/status | jq .tasks[0].state
-```
+Check status:
 
-### Step 2 — Register Iceberg Sink connector
+curl localhost:8083/connectors/postgres-connector/status | jq .
 
-```bash
+Expected:
+
+"state": "RUNNING"
+Verify Iceberg Plugin
+curl localhost:8083/connector-plugins | grep -i iceberg
+
+Expected class:
+
+io.tabular.iceberg.connect.IcebergSinkConnector
+Register Iceberg Sink Connector
 curl -X POST http://localhost:8083/connectors \
-  -H "Content-Type: application/json" \
-  -d @connectors/iceberg-sink.json
+-H "Content-Type: application/json" \
+--data @connectors/iceberg-sink.json
 
-# Verify RUNNING:
-curl http://localhost:8083/connectors/iceberg-orders-sink/status | jq .tasks[0].state
-```
+Check status:
 
-### Step 3 — Trigger CDC events
+curl localhost:8083/connectors/iceberg-orders-sink/status | jq .
 
-```bash
-psql -h <DB_PUBLIC_IP> -U debezium -d ordersdb -f scripts/test-cdc.sql
-```
+Expected connector state:
 
-### Step 4 — Verify data in Kafka topic
+"state": "RUNNING"
+Insert Test Data
 
-```bash
-docker exec kafka kafka-console-consumer \
-  --bootstrap-server localhost:9092 \
-  --topic cdc.public.orders \
-  --from-beginning \
-  --max-messages 10
-```
+On the PostgreSQL EC2 instance:
 
-You will see messages with `__op: "r"` (snapshot), `__op: "c"` (insert), `__op: "u"` (update), `__op: "d"` (delete).
+sudo -u postgres psql
+INSERT INTO public.orders (customer_name, amount, status, created_at)
+VALUES ('FINAL_SUCCESS', 999, 'created', NOW());
+Verify CDC Events in Kafka
 
-### Step 5 — Verify data in S3 Tables via Athena
+From WSL:
 
-```sql
-SELECT id, customer_name, amount, status, __op, __source_ts_ms
-FROM "cdc"."orders"
-ORDER BY __source_ts_ms DESC
-LIMIT 10;
-```
+sudo docker exec -it galga_kafka_1 kafka-console-consumer \
+--bootstrap-server localhost:9092 \
+--topic cdc.public.orders \
+--from-beginning \
+--timeout-ms 10000
 
----
+Expected output should include:
 
-## Security Design Decisions
+FINAL_SUCCESS
 
-| Decision | Rationale |
-|----------|-----------|
-| IAM Role on Kafka EC2 | No hardcoded AWS credentials |
-| Security groups with `/32` CIDR | SSH restricted to operator IP only |
-| PostgreSQL port 5432 restricted | Only accessible from allowed IPs |
-| S3 state bucket with versioning + encryption | State file protected and recoverable |
-| `use_lockfile = true` | Native S3 locking, no DynamoDB needed |
-| Debezium SUPERUSER | Required to create PostgreSQL publications for CDC |
+or:
 
----
+LIVE_TEST_AFTER_RESTART
 
-## Screenshots
+The Debezium event includes:
 
-See `screenshots/` directory:
-- `01-terraform-apply-outputs.png`
-- `02-ec2-instances.png`
-- `03-security-group.png`
-- `04-connectors-running.png`
-- `05-kafka-cdc-messages-topic.png`
-- `06-postgres-insert-and-select.png`
-- `07-connectors-running.png`
-- `08-kafka-cdc-messages-final.png`
----
+"op": "c"
 
-## Tear Down
+Where:
 
-```bash
-terraform destroy
-cd bootstrap/ && terraform destroy
-```
+c = create / insert
+u = update
+d = delete
+r = snapshot read
+Validation Screenshots
+
+Screenshots are included under the screenshots/ directory.
+
+Recommended screenshots:
+
+debezium-connector-running.png
+iceberg-connector-running.png
+iceberg-plugin-loaded.png
+kafka-topic-list.png
+kafka-cdc-events-debezium.png
+postgres-insert-success.png
+Security Notes
+
+AWS credentials are not hardcoded in the source code.
+
+For local execution, credentials can be passed into the Kafka Connect container using environment variables.
+
+The .env file should not be committed to Git.
+
+Example .gitignore entry:
+
+.env
+
+In a production environment, the preferred approach would be IAM Roles instead of static access keys.
+
+Key Learnings
+
+This project demonstrates:
+
+CDC using Debezium
+PostgreSQL logical replication
+Kafka as a streaming buffer
+Kafka Connect plugin management
+Iceberg Sink Connector setup
+S3 Tables integration
+Debugging networking, replication, credentials, and connector issues
+Final Result
+
+The project successfully validates a CDC flow from PostgreSQL into Kafka and runs the Iceberg Sink Connector for writing into AWS S3 Tables.
+
+Validated flow:
+
+PostgreSQL → Debezium → Kafka → Iceberg → S3 Tables
+
