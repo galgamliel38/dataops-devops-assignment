@@ -7,7 +7,7 @@
     "database.hostname": "REPLACE_WITH_DB_PRIVATE_IP",
     "database.port": "5432",
     "database.user": "debezium",
-    "database.password": "debezium_password",
+    "database.password": "REPLACE_WITH_DB_PASSWORD",
     "database.dbname": "ordersdb",
 
     "topic.prefix": "cdc",
@@ -22,11 +22,18 @@
     "key.converter.schemas.enable": "true",
     "value.converter.schemas.enable": "true",
 
-    "transforms": "unwrap",
+    "transforms": "unwrap,renameSourceTs,routeToRequiredTopic",
     "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
     "transforms.unwrap.add.fields": "op,source.ts_ms",
     "transforms.unwrap.add.fields.prefix": "__",
     "transforms.unwrap.delete.handling.mode": "rewrite",
-    "transforms.unwrap.drop.tombstones": "false"
+    "transforms.unwrap.drop.tombstones": "false",
+
+    "transforms.renameSourceTs.type": "org.apache.kafka.connect.transforms.ReplaceField$Value",
+    "transforms.renameSourceTs.renames": "__source_ts_ms:__source_ts",
+
+    "transforms.routeToRequiredTopic.type": "org.apache.kafka.connect.transforms.RegexRouter",
+    "transforms.routeToRequiredTopic.regex": "cdc\\.public\\.orders",
+    "transforms.routeToRequiredTopic.replacement": "cdc.orders"
   }
 }

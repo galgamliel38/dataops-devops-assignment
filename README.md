@@ -1,47 +1,34 @@
-# DataOps DevOps Assignment – End-to-End CDC Pipeline
-
-## Overview
-
+DataOps DevOps Assignment – End-to-End CDC Pipeline
+Overview
 This project implements an end-to-end CDC (Change Data Capture) pipeline:
 
 PostgreSQL → Debezium → Kafka → Iceberg Sink Connector → AWS S3 Tables
 
 The platform is executed locally using WSL and Docker, while PostgreSQL and S3 Tables are hosted on AWS.
 
----
-
-## Architecture
-
-PostgreSQL on AWS EC2  
-↓  
-Debezium PostgreSQL Connector  
-↓  
-Kafka Topic: `cdc.public.orders`  
-↓  
-Iceberg Sink Connector  
-↓  
+Architecture
+PostgreSQL on AWS EC2
+↓
+Debezium PostgreSQL Connector
+↓
+Kafka Topic: cdc.public.orders
+↓
+Iceberg Sink Connector
+↓
 AWS S3 Tables
 
----
-
-## Technologies Used
-
-- Terraform
-- AWS EC2
-- AWS S3 Tables
-- PostgreSQL
-- Docker / Docker Compose
-- Apache Kafka
-- Kafka Connect
-- Debezium
-- Iceberg Sink Connector
-- WSL2
-
----
-
-## Project Structure
-
-```text
+Technologies Used
+Terraform
+AWS EC2
+AWS S3 Tables
+PostgreSQL
+Docker / Docker Compose
+Apache Kafka
+Kafka Connect
+Debezium
+Iceberg Sink Connector
+WSL2
+Project Structure
 .
 ├── docker-compose.yml
 ├── debezium.json
@@ -261,4 +248,3 @@ The project successfully validates a CDC flow from PostgreSQL into Kafka and run
 Validated flow:
 
 PostgreSQL → Debezium → Kafka → Iceberg → S3 Tables
-

@@ -7,10 +7,15 @@
     "topics": "cdc.orders",
 
     "iceberg.catalog.type": "rest",
+    "iceberg.catalog.uri": "https://s3tables.REPLACE_WITH_AWS_REGION.amazonaws.com/iceberg",
+    "iceberg.catalog.warehouse": "REPLACE_WITH_S3_TABLE_BUCKET_ARN",
+    "iceberg.catalog.rest.sigv4-enabled": "true",
+    "iceberg.catalog.rest.signing-name": "s3tables",
+    "iceberg.catalog.rest.signing-region": "REPLACE_WITH_AWS_REGION",
+
     "iceberg.tables": "cdc.orders",
-
-    "iceberg.tables.auto-create-enabled": "true",
-
-    "flush.size": "10"
+    "iceberg.tables.auto-create-enabled": "false",
+    "iceberg.tables.evolve-schema-enabled": "false",
+    "iceberg.control.commit.interval-ms": "30000"
   }
 }

@@ -37,3 +37,10 @@ variable "kafka_instance_type" {
   type        = string
   default     = "t3.xlarge"
 }
+
+
+variable "db_debezium_password" {
+  description = "Password for the PostgreSQL Debezium replication user. Pass via TF_VAR_db_debezium_password or terraform.tfvars; do not commit real secrets."
+  type        = string
+  sensitive   = true
+}
